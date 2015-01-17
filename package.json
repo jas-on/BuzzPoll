@@ -1,0 +1,9 @@
+{
+  "name": "buzzpoll",
+  "version": "0.0.1",
+  "description": "partially stateful poll middleman",
+  "dependencies": {
+    "express": "~4.11.0",
+    "socket.io": "~1.2.1"
+  }
+}
