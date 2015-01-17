@@ -24,11 +24,11 @@ $(function() {
   });
 
   $("#create_session").click(function() {
-    socket.emit("create session", prompt("User IDs").split(","));
+    socket.emit("create session");
   });
 
-  socket.on("invite", function(data) {
-      $chat.append("Invited to " + data.sessionId + br());
+  socket.on("created session", function(data) {
+      $chat.append("Session " + data.sessionId + " created" + br());
   });
 
   $("#enter_session").click(function() {
@@ -53,6 +53,7 @@ $(function() {
 
   socket.on("left session", function(data) {
     $chat.append(data.userId + " left session " + data.sessionId + br());
+    socket.emit("make choice", -1, data.sessionId);
   });
 
   $("#make_choice").click(function() {
@@ -65,6 +66,15 @@ $(function() {
 
   $("#exit").click(function() {
       socket.emit("exit");
+  });
+
+  socket.on("exited", function(data) {
+      $chat.append(data.message + br());
+      socket.emit("make choice", -1, data.sessionId);
+  });
+
+  socket.on("err", function(data) {
+      $chat.append(data.message + br());
   });
 
 });
