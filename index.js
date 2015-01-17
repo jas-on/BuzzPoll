@@ -12,7 +12,6 @@ app.use(express.static(__dirname));
 
 var users = {};
 var sessions = {};
-var socketCount = 0;
 
 //get a random id and assign it to a socket
 //then keep track of it being in use
@@ -28,7 +27,9 @@ function makeId(collection, socket) {
     } while (text in collection); //keep going if the id exists
 
     collection[text] = socket; //keep track of it
-    socket.id = text;
+    if (socket) {
+        socket.id = text;
+    }
     return text;
 }
 
@@ -59,46 +60,51 @@ io.on('connection', function (socket) {
 
     //when a user create a new session
     socket.on('create session', function (invitedUsers) {
+        //if user is already in a session, cannot create a new one
         if (socket.currentSession) {
+            socket.emit('error', {
+                message: "You are already in a session."
+            });
             return;
         }
 
-        //check if all the invited users are logged in
-        var loggedIn = invitedUsers.filter(function (userId) {
-            return userId in users;
-        });
+        var sessionId = makeId(sessions, null);
 
-        if (loggedIn.length != invitedUsers.length) {
-            return;
-        }
-
-        //if the socketCount reaches this, wrap around
-        if (socketCount == 100000) {
-            socketCount = 0;
-        }
-
-        //create a new session and assign sessionId to be current
-        sessions[socketCount] = {
+        //create a new session
+        sessions[sessionId] = {
             host: socket.id,
             started: false,
+            created: new Date().getTime(),
             users: {}
         };
 
-        //notify all of the invited users of the sessionId
-        invitedUsers.forEach(function(userId) {
-            users[userId].emit('invite', {
-                sessionId: socketCount
-            });
-        });
-
-        console.log("Session with id " + socketCount + " created");
-
-        ++socketCount;
+        console.log("Session " + sessionId + " created");
     });
 
     //when a user enters a session
     socket.on('enter session', function (sessionId) {
+        //if user is already in a session, cannot enter another one
         if (socket.currentSession) {
+            socket.emit('error', {
+                message: "You are already in a session."
+            });
+            return;
+        }
+
+        //check if session is valid
+        if (!sessions[sessionId]) {
+            socket.emit('error', {
+                message: "Session does not exist."
+            });
+            return;
+        }
+
+        //check if registration is still open (2 mins)
+        var timeDiff = new Date().getTime() - sessions[sessionId].created;
+        if (timeDiff > 120) {
+            socket.emit('error', {
+                message: "Session registration closed."
+            });
             return;
         }
 
@@ -117,11 +123,22 @@ io.on('connection', function (socket) {
     //when a host user ends a session
     socket.on('end session', function () {
         if (socket.currentSession === null) {
+            socket.emit('error', {
+                message: "You are not in a session."
+            });
             return;
         }
 
         var session = sessions[socket.currentSession];
         var currentSession = socket.currentSession;
+
+        //check if host, only host can end session
+        if (sessions[socket.currentSession].host != socket.id) {
+            socket.emit('error', {
+                message: "Only the host can end the session."
+            });
+            return;
+        }
 
         //notify all users in session that it has ended
         for (userId in session.users) {
@@ -134,12 +151,24 @@ io.on('connection', function (socket) {
 
         console.log("User " + socket.id + " ended session " + currentSession);
 
-        delete session;
+        delete sessions[socket.currentSession];
     });
 
     //when a nonhost user leaves a session
     socket.on('leave session', function () {
+        //can't leave a session if user isn't in a session
         if (socket.currentSession === null) {
+            socket.emit('error', {
+                message: "You are not in a session."
+            });
+            return;
+        }
+
+        //check if host, host must end session and not leave it
+        if (sessions[socket.currentSession].host == socket.id) {
+            socket.emit('error', {
+                message: "Everyone besides the host can leave a session."
+            });
             return;
         }
 
@@ -157,7 +186,10 @@ io.on('connection', function (socket) {
 
     //when a user sends a choice
     socket.on('make choice', function (answer) {
-        if (socket.currentSession === null || answer == 0) {
+        if (socket.currentSession === null || answer < 1) {
+            socket.emit('error', {
+                message: "You are not in a session or you have an invalid decision."
+            });
             return;
         }
 
@@ -176,16 +208,15 @@ io.on('connection', function (socket) {
             sessionUsers.push(userId);
             if (session.users[userId] != 0) {
                 ++answered;
-            }
 
-            if (!session.started && session.users[userId] == 3) {
-                ++check;
+                if (!session.started && session.users[userId] == 3) {
+                    ++check;
+                }
             }
         }
 
         //if not everyone has answered, do nothing
         if (answered < (Object.keys(session.users).length)) {
-            console.log(session);
             return;
         }
 
@@ -201,10 +232,8 @@ io.on('connection', function (socket) {
                     sessions[socket.currentSession].users[userId] = 0;
                 }
             }
-
             return;
         }
-
 
         //if there are only 2 users in the session
         if (answered == 2) {
@@ -236,20 +265,18 @@ io.on('connection', function (socket) {
         } else { //if there are multiple users in the session
             //take a tally of the answer frequencies
             var poll = [];
-            for (userId in session.users) {
+            sessionUsers.forEach(function (userId) {
                 if (poll[session.users[userId]]) {
                     ++poll[session.users[userId]];
                 } else {
                     poll[session.users[userId]] = 1;
                 }
-            }
+            });
 
             //get the most frequent answer
             var popular = poll.indexOf(max(poll));
             var pattern = 10; //default to agreement
 
-            console.log(poll);
-            console.log(popular);
             for (var i = 0; i < poll.length; ++i) {
                 //if there isn't a consensus, send most popular answer
                 if (poll[i] != undefined && i != popular) {
