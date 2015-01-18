@@ -14,6 +14,7 @@ var users = {};
 var sessions = {};
 var AGREEMENT = 10;
 var UPDATE = -1;
+var ID_LENGTH = 4;
 
 //get a random id and assign it to a socket if available
 //then keep track of it being in use
@@ -23,7 +24,7 @@ function makeId(collection, socket) {
 
     do {
         text = "";
-        for(var i = 0; i < 4; i++) {
+        for(var i = 0; i < ID_LENGTH; i++) {
             text += possible.charAt(Math.floor(Math.random() * possible.length));
         }
     } while (text in collection); //keep going if the id exists
@@ -135,11 +136,11 @@ io.on('connection', function (socket) {
             return;
         }
 
-        var session = sessions[socket.currentSession];
         var currentSession = socket.currentSession;
+        var session = sessions[currentSession];
 
         //check if host, only host can end session
-        if (sessions[socket.currentSession].host != socket.id) {
+        if (sessions[currentSession].host != socket.id) {
             socket.emit('err', {
                 message: "Only the host can end the session."
             });
@@ -149,7 +150,6 @@ io.on('connection', function (socket) {
         //notify all users in session that it has ended
         for (userId in session.users) {
             users[userId].emit('ended session', {
-                userId: socket.id,
                 sessionId: currentSession
             });
             users[userId].currentSession = null;
@@ -157,7 +157,7 @@ io.on('connection', function (socket) {
 
         console.log("User " + socket.id + " ended session " + currentSession);
 
-        delete sessions[socket.currentSession];
+        delete sessions[currentSession];
     });
 
     //when a nonhost user leaves a session
@@ -201,7 +201,6 @@ io.on('connection', function (socket) {
         }
 
         var currentSession = socket.currentSession || oldSessionId;
-        console.log(currentSession);
 
         //if a user leaves a session or exits the app
         var session = sessions[currentSession];
@@ -244,7 +243,9 @@ io.on('connection', function (socket) {
                 //reset the answers
                 for (userId in session.users) {
                     sessions[currentSession].users[userId] = 0;
+                    users[userId].emit("session started");
                 }
+
             }
             return;
         }
