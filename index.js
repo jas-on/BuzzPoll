@@ -127,8 +127,7 @@ io.on('connection', function (socket) {
         console.log("User " + socket.id + " entered session " + sessionId);
     });
 
-    //when a host user ends a session
-    socket.on('end session', function () {
+    function endSession () {
         if (socket.currentSession === null) {
             socket.emit('err', {
                 message: "You are not in a session."
@@ -149,6 +148,9 @@ io.on('connection', function (socket) {
 
         //notify all users in session that it has ended
         for (userId in session.users) {
+            if (!(userId in users)) {
+                continue;
+            }
             users[userId].emit('ended session', {
                 sessionId: currentSession
             });
@@ -158,7 +160,10 @@ io.on('connection', function (socket) {
         console.log("User " + socket.id + " ended session " + currentSession);
 
         delete sessions[currentSession];
-    });
+    }
+
+    //when a host user ends a session
+    socket.on('end session', endSession);
 
     //when a nonhost user leaves a session
     socket.on('leave session', function () {
@@ -204,6 +209,11 @@ io.on('connection', function (socket) {
 
         //if a user leaves a session or exits the app
         var session = sessions[currentSession];
+
+        if (!session) {
+            return;
+        }
+
         if (answer > 0) {
             //make an entry in the session
             sessions[currentSession].users[socket.id] = answer;
@@ -215,6 +225,12 @@ io.on('connection', function (socket) {
         var answered = 0;
         var check = 0;
         var sessionUsers = [];
+
+        if (Object.keys(session.users).length == 0) {
+            delete sessions[currentSession];
+            console.log("Session " + currentSession + " ended");
+            return;
+        }
 
         //check if everyone in the session answered
         for (userId in session.users) {
@@ -322,17 +338,24 @@ io.on('connection', function (socket) {
         //if the user is in a session, remove her
         var currentSession = socket.currentSession;
         if (currentSession) {
+            //if the user is the host of the session
+            if (sessions[currentSession].host == socket.id) {
+                endSession();
+            } else {
+                delete sessions[currentSession].users[socket.id];
+            }
+
             socket.emit("exited", {
-                message: "User " + socket.id + " has left the app.",
+                userId: socket.id,
                 sessionId: currentSession
             });
 
-            delete sessions[currentSession].users[socket.id];
         }
 
         socket.currentSession = null;
         console.log("User " + socket.id + " left the app");
         //free from id pool
+        socket.id = null;
         delete users[socket.id];
     });
 });

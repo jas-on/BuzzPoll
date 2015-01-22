@@ -1,0 +1,7 @@
+test beep and shake empirically
+setup digitalocean/domain name
+error checking for socket.io
+disable splashscreen
+
+- on exit hook
+- more help messages
